@@ -247,7 +247,9 @@ pub mod sigma_protocol {
         let mut sha256 = Sha256::default();
         sha256.update(&serialized_commit);
 
-        let challenge_bytes = sha256.finalize();
+        let mut challenge_bytes = sha256.finalize().as_slice().to_vec();
+        challenge_bytes[31] = 0;
+        challenge_bytes[30] = 0;
         PrivateKey::from_bytes(&challenge_bytes)
             .expect("length should be always match")
             .0
