@@ -12,12 +12,12 @@ use sha2::Sha256;
 #[cfg(feature = "pairing")]
 use sha2::{digest::generic_array::typenum::U48, digest::generic_array::GenericArray};
 
-pub(crate) struct ScalarRepr(pub [u64; 4]);
-
 #[cfg(feature = "blst")]
 use blstrs::{G1Affine, G1Projective, G2Affine, Scalar};
 #[cfg(feature = "blst")]
 use group::prime::PrimeCurveAffine;
+
+pub(crate) struct ScalarRepr(<Scalar as PrimeFieldBits>::ReprBits);
 
 use crate::error::Error;
 use crate::signature::*;
@@ -25,10 +25,10 @@ use crate::signature::*;
 pub(crate) const G1_COMPRESSED_SIZE: usize = 48;
 pub(crate) const G1_UNCOMPRESSED_SIZE: usize = 96;
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct PublicKey(pub(crate) G1Projective);
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct PrivateKey(pub(crate) Scalar);
 
 impl From<G1Projective> for PublicKey {
@@ -167,7 +167,7 @@ impl PrivateKey {
 
 impl Serialize for PrivateKey {
     fn write_bytes(&self, dest: &mut impl io::Write) -> io::Result<()> {
-        for digit in self.0.to_le_bits().as_buffer() {
+        for digit in &self.0.to_le_bits().data {
             dest.write_all(&digit.to_le_bytes())?;
         }
 
@@ -376,8 +376,6 @@ fn key_gen<T: AsRef<[u8]>>(data: T) -> Scalar {
 /// https://tools.ietf.org/html/draft-irtf-cfrg-bls-signature-02#section-2.3
 #[cfg(feature = "blst")]
 fn key_gen<T: AsRef<[u8]>>(data: T) -> Scalar {
-    use std::convert::TryInto;
-
     let data = data.as_ref();
     assert!(data.len() >= 32, "IKM must be at least 32 bytes");
 
@@ -453,5 +451,42 @@ mod tests {
         let pk = sk.public_key();
 
         assert!(pk.verify(sig, msg));
+    }
+
+    #[test]
+    fn test_from_bytes() {
+        // Larger than the modulus
+        assert!(PrivateKey::from_bytes(&[255u8; 32]).is_err());
+
+        // Scalar field modulus' bigint (i.e. non-Montgomery form) little-endian bytes.
+        let modulus_repr: [u8; 32] = [
+            0x01, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xfe, 0x5b, 0xfe, 0xff, 0x02, 0xa4,
+            0xbd, 0x53, 0x05, 0xd8, 0xa1, 0x09, 0x08, 0xd8, 0x39, 0x33, 0x48, 0x7d, 0x9d, 0x29,
+            0x53, 0xa7, 0xed, 0x73,
+        ];
+
+        // Largest field element.
+        let neg1_repr: [u8; 32] = {
+            let mut repr = modulus_repr;
+            repr[0] -= 1;
+            repr
+        };
+        assert!(PrivateKey::from_bytes(&neg1_repr).is_ok());
+
+        // Smallest integer greater than the modulus.
+        let modulus_plus_1_repr = {
+            let mut repr = modulus_repr;
+            repr[0] += 1;
+            repr
+        };
+        assert!(PrivateKey::from_bytes(&modulus_plus_1_repr).is_err());
+
+        // simple numbers below the modulus
+        assert!(PrivateKey::from_bytes(&Scalar::from(1).to_repr()).is_ok());
+        assert!(PrivateKey::from_bytes(&Scalar::from(10).to_repr()).is_ok());
+        assert!(PrivateKey::from_bytes(&Scalar::from(100).to_repr()).is_ok());
+
+        // Larger than the modulus
+        assert!(PublicKey::from_bytes(&[255u8; 48]).is_err());
     }
 }

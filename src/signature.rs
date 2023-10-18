@@ -26,7 +26,7 @@ const CSUITE: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
 const G2_COMPRESSED_SIZE: usize = 96;
 const G2_UNCOMPRESSED_SIZE: usize = 192;
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Signature(G2Affine);
 
 impl From<G2Projective> for Signature {
@@ -147,10 +147,8 @@ pub fn aggregate(signatures: &[Signature]) -> Result<Signature, Error> {
     }
 
     let res = signatures
-        .into_iter()
-        .fold(G2Projective::identity(), |acc, signature| {
-            acc + &signature.0
-        });
+        .iter()
+        .fold(G2Projective::identity(), |acc, signature| acc + signature.0);
 
     Ok(Signature(res.into()))
 }
@@ -487,6 +485,7 @@ mod tests {
     use super::*;
 
     use base64::STANDARD;
+    use ff::Field;
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha8Rng;
     use serde::Deserialize;
@@ -497,8 +496,6 @@ mod tests {
     use bls12_381::{G1Projective, Scalar};
     #[cfg(feature = "blst")]
     use blstrs::{G1Projective, Scalar};
-    #[cfg(feature = "blst")]
-    use ff::Field;
 
     #[test]
     fn basic_aggregation() {
@@ -580,7 +577,7 @@ mod tests {
         let mut rng = ChaCha8Rng::seed_from_u64(12);
 
         // In the current iteration we expect the zero key to be valid and work.
-        let zero_key: PrivateKey = Scalar::zero().into();
+        let zero_key: PrivateKey = Scalar::ZERO.into();
         assert!(bool::from(zero_key.public_key().0.is_identity()));
 
         println!(
